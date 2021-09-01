@@ -1,0 +1,2 @@
+# FaceRecognitionForTracking_MindSpore
+FaceRecognitionForTracking for MindX
