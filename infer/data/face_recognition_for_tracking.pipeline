@@ -1,0 +1,52 @@
+{
+    "im_facerecognitionfortracking": {
+        "stream_config": {
+            "deviceId": "0"
+        },
+        "appsrc0": {
+            "props": {
+                "blocksize": "40960"
+            },
+            "factory": "appsrc",
+            "next": "mxpi_imagedecoder0"
+        },
+        "mxpi_imagedecoder0": {
+            "factory": "mxpi_imagedecoder",
+            "next": "mxpi_imageresize0"
+        },
+        "mxpi_imageresize0": {
+            "props": {
+                "dataSource": "mxpi_imagedecoder0",
+                "resizeHeight": "96",
+                "resizeWidth": "64",
+                "resizeType": "Resizer_KeepAspectRatio_Fit"
+            },
+            "factory": "mxpi_imageresize",
+            "next": "mxpi_modelinfer0" 
+        },
+        "mxpi_modelinfer0": {
+            "props": {
+                "dataSource": "mxpi_imageresize0",
+                "modelPath": "../data/face_recognition_for_tracking.om",
+                "postProcessConfigPath": "../data/face_recognition_for_tracking_sdk_infer.cfg",
+                "labelPath": "../data/face_recognition_for_tracking.names",
+                "postProcessLibPath": "/home/data/cd_mindx/mxManufacture-2.0.2/lib/libresnet50postprocessor.so"
+            },
+            "factory": "mxpi_modelinfer",
+            "next": "mxpi_dataserialize0"
+        },
+        "mxpi_dataserialize0": {
+            "props": {
+                "outputDataKeys": "mxpi_modelinfer0"
+            },
+            "factory": "mxpi_dataserialize",
+            "next": "appsink0"
+        },
+        "appsink0": {
+            "props": {
+                "blocksize": "40960"
+            },
+            "factory": "appsink"
+        }
+    }
+}
