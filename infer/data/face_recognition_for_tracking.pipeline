@@ -11,15 +11,20 @@
             "next": "mxpi_imagedecoder0"
         },
         "mxpi_imagedecoder0": {
+            "props": {
+                "handleMethod": "opencv",
+                "outputDataFormat": "RGB"
+            },
             "factory": "mxpi_imagedecoder",
             "next": "mxpi_imageresize0"
         },
         "mxpi_imageresize0": {
             "props": {
+                "handleMethod": "opencv",
                 "dataSource": "mxpi_imagedecoder0",
                 "resizeHeight": "96",
                 "resizeWidth": "64",
-                "resizeType": "Resizer_KeepAspectRatio_Fit"
+                "resizeType": "Resizer_Stretch"
             },
             "factory": "mxpi_imageresize",
             "next": "mxpi_modelinfer0" 
