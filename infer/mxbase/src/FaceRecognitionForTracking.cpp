@@ -101,5 +101,103 @@ APP_ERROR FaceRecognitionForTracking::Resize(const cv::Mat &srcMat, cv::Mat &dst
 }
 
 APP_ERROR FaceRecognitionForTracking::CvMatToTensorBase(const cv::Mat &imgMat, MxBase::TensorBase &tensorBase) {
-    
+    const uint32_t dataSize = imgMat.cols * imgMat.rows * YUV444_RGB_WIDTH_NU;
+    MemoryData memoryDataDst(dataSize, MemoryData::MEMORY_DEVICE, deviceId_);
+    MemoryData memoryDataSrc(imgMat.data, dataSize, MemoryData::MEMORY_HOST_MALLOC);
+
+    APP_ERROR ret = MemoryHelper::MxbsMallocAndCopy(memoryDataDst, memoryDataSrc);
+    if (ret != APP_ERR_OK) {
+        LogError << GetError(ret) << "Memory malloc failed.";
+        return ret;
+    }
+
+    std::vector<uint32_t> shape = {imgMat.rows * YUV444_RGB_WIDTH_NU, static_cast<uint32_t>(imgMat.cols)};
+    tensorBase = TensorBase(memoryDataDst, false, shape, TENSOR_DTYPE_FLOAT16);
+    return APP_ERR_OK;
+}
+
+APP_ERROR FaceRecognitionForTracking::Inference(const std::vector<MxBase::TensorBase> &inputs, std::vector<MxBase::TensorBase> &outputs) {
+    auto dtypes = model_->GetOutputDataType();
+    for (size_t i = 0; i < modelDesc_.outputTensors.size(); i++) {
+        std::vector<uint32_t> shape = {};
+        for (size_t j = 0; j < modelDesc_.outputTensors[i].tensorDims.size(); j++) {
+            shape.push_back((uint32_t)modelDesc_.outputTensors[i].tensorDims[j]);
+        }
+        TensorBase tensor(shape, dtypes[i], MemoryData::MemoryType::MEMORY_DEVICE, deviceId_);
+        APP_ERROR ret = TensorBase::TensorBaseMalloc(tensor);
+        if (ret != APP_ERR_OK) {
+            LogError << "TensorBaseMalloc failed, ret=" << ret << ".";
+            return ret;
+        }
+        outputs.push_back(tensor);
+    }
+    DynamicInfo dynamicInfo = {};
+    dynamicInfo.dynamicType = DynamicType::STATIC_BATCH;
+    auto startTime = std::chrono::high_resolution_clock::now();
+    APP_ERROR ret = model_->ModelInference(inputs, outputs, dynamicInfo);
+    auto endTime = std::chrono::high_resolution_clock::now();
+    if (ret != APP_ERR_OK) {
+        LogError << "ModelInference failed, ret=" << ret << ".";
+        return ret;
+    }
+    double costMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+    inferCostTimeMs += costMs;
+    return APP_ERR_OK;
+}
+
+APP_ERROR FaceRecognitionForTracking::PostProcess(const std::vector<MxBase::TensorBase> &inputs, std::vector<std::vector<MxBase::ClassInfo>> &clsInfos) {
+    APP_ERROR ret = post_->Process(inputs, clsInfos);
+    if (ret != APP_ERR_OK) {
+        LogError << "Process failed, ret=" << ret << ".";
+        return ret;
+    }
+    return APP_ERR_OK;
+}
+
+APP_ERROR FaceRecognitionForTracking::Process(const std::string &imgPath) {
+    cv::Mat image;
+    APP_ERROR ret = ReadImage(imgPath, image);
+    if (ret != APP_ERR_OK) {
+        LogError << "ReadImage failed, ret=" << ret << ".";
+        return ret;
+    }
+    cv::Mat resizeImage;
+    ret = Resize(image, resizeImage);
+    if (ret != APP_ERR_OK) {
+        LogError << "Resize failed, ret=" << ret << ".";
+        return ret;
+    }
+
+    TensorBase imageTensor;
+    ret = CvMatToTensorBase(resizeImage, imageTensor);
+    if (ret != APP_ERR_OK) {
+        LogError << "CvMatToTensorBase failed, ret=" << ret << ".";
+        return ret;
+    }
+    std::vector<MxBase::TensorBase> inputs = {};
+    std::vector<MxBase::TensorBase> outputs = {};
+    inputs.push_back(imageTensor);
+    ret = Inference(inputs, outputs);
+    if (ret != APP_ERR_OK) {
+        LogError << "Inference failed, ret=" << ret << ".";
+        return ret;
+    }
+    std::vector<std::vector<MxBase::ClassInfo>> batchClsInfos = {};
+    ret = PostProcess(outputs, batchClsInfos);
+    if (ret != APP_ERR_OK) {
+        LogError << "PostProcess failed, ret=" << ret << ".";
+        return ret;
+    }
+
+    for (auto &clsInfos : batchClsInfos) {
+        std::string resDataStr;
+        uint32_t topkIndex = 1;
+        for (auto &clsInfo : clsInfos) {
+            resDataStr += std::to_string(clsInfos.classId) + " ";
+            std::cout << "batchIndex:" << batchIndex << " top" << topkIndex << " className:" << clsInfo.className
+                << " confidence:" << clsInfo.confidence << " classIndex:" << clsInfo.classId;
+            topkIndex++;
+        }
+        batchIndex++;
+    }
 }
