@@ -17,12 +17,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import re
 import os
 import sys
 import json
 import base64
 import argparse
 import numpy as np
+from tqdm import tqdm
 
 from StreamManagerApi import *
 
