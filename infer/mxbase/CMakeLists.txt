@@ -47,6 +47,6 @@ link_directories(${MXBASE_POST_LIB_DIR})
 # 本地编译链接文件，根据mxbase目录下文件添加修改
 add_executable(${TARGET} ./src/main.cpp ./src/FaceRecognitionForTracking.cpp)
 # 链接动态链接库，后处理lib:resnet50postprocess根据实际情况修改
-target_link_libraries(${TARGET} glog cpprest mxbase resnet50postprocess opencv_world stdc++fs)
+target_link_libraries(${TARGET} glog cpprest mxbase opencv_world stdc++fs)
 
 install(TARGETS ${TARGET} RUNTIME DESTINATION ${PROJECT_SOURCE_DIR}/)

@@ -12,14 +12,9 @@ int main(int argc, char* argv[]) {
     std::string imgPath = argv[1];
     InitParam initParam;
     initParam.deviceId = 0;
-    initParam.classNum = CLASS_NUM;
-    initParam.labelPath = "../../data/face_recognition_for_tracking.names";
-    initParam.topk = 1;
-    initParam.softmax = false;
-    initParam.checkTensor = true;
     initParam.modelPath = "../../data/face_recognition_for_tracking.om";
     auto face_recognition_for_tracking = std::make_shared<FaceRecognitionForTracking>();
-    ret = face_recognition_for_tracking->Init(initParam);
+    APP_ERROR ret = face_recognition_for_tracking->Init(initParam);
     if (ret != APP_ERR_OK) {
         LogError << "FaceRecognitionForTracking init failed, ret=" << ret << ".";
         return ret;

@@ -14,19 +14,15 @@
  * limitations under the License.
  */
 
-#include "opencv2/opencv.hpp"
-#include "MxBase/DvppWrapper/DvppWrapper.h"
+#ifndef FACE_RECOGNITION_FOR_TRACKING_H
+#define FACE_RECOGNITION_FOR_TRACKING_H
+
+#include <opencv2/opencv.hpp>
 #include "MxBase/ModelInfer/ModelInferenceProcessor.h"
-#include "ClassPostProcessors/Resnet50PostProcess.h"
 #include "MxBase/Tensor/TensorContext/TensorContext.h"
 
 struct InitParam {
     uint32_t deviceId;
-    std::string labelPath;
-    uint32_t classNum;
-    uint32_t topk;
-    bool softmax;
-    bool checkTensor;
     std::string modelPath;
 };
 
@@ -38,20 +34,23 @@ public:
     APP_ERROR Resize(const cv::Mat &srcMat, cv::Mat &dstMat);
     APP_ERROR CvMatToTensorBase(const cv::Mat &imgMat, MxBase::TensorBase &tensorBase);
     APP_ERROR Inference(const std::vector<MxBase::TensorBase> &inputs, std::vector<MxBase::TensorBase> &outputs);
-    APP_ERROR PostProcess(const std::vector<MxBase::TensorBase> &inputs, std::vector<std::vector<MxBase::ClassInfo>> &clsInfos);
+    APP_ERROR PostProcess(const std::vector<MxBase::TensorBase> &inputs, std::vector<std::string> &names, cv::Mat &output);
     APP_ERROR Process(const std::string &imgPath);
     double GetInferCostTimeMs() const {
         return inferCostTimeMs;
     }
 
 private:
-    std::string FormatResultFile(const std::string &imgPath);
-    APP_ERROR SaveResult(const std::string &imgPath, const std::vector<std::vector<MxBase::ClassInfo>> &batchClsInfos);
+    std::vector<std::string> GetFileList(const std::string &dirPath);
+    void InclassLikehood(cv::Mat &featureMat, std::vector<std::string> &names, std::vector<float> &inclassLikehood);
+    void BtclassLikehood(cv::Mat &featureMat, std::vector<std::string> &names, std::vector<float> &btclassLikehood);
+    void TarAtFar(std::vector<float> &inclassLikehood, std::vector<float> &btclassLikehood, std::vector<std::vector<float>> &tarFars);
+
 private:
-    std::shared_ptr<MxBase::DvppWrapper> dvppWrapper_;
     std::shared_ptr<MxBase::ModelInferenceProcessor> model_;
-    std::shared_ptr<MxBase::Resnet50PostProcess> post_;
     MxBase::ModelDesc modelDesc_;
     uint32_t deviceId_ = 0;
     double inferCostTimeMs = 0.0;
 };
+
+#endif
