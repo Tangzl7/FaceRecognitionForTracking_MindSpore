@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 """Face Recognition train."""
 import os
 import time
-import argparse
 import datetime
 import warnings
 import random
@@ -23,78 +22,139 @@ import numpy as np
 
 import mindspore
 from mindspore import context
-from mindspore import Tensor
 from mindspore.context import ParallelMode
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 from mindspore.train.callback import ModelCheckpoint, RunContext, _InternalCallbackParam, CheckpointConfig
-from mindspore.nn.optim import Momentum, SGD
+from mindspore.nn.optim import SGD
 from mindspore.nn import TrainOneStepCell
 from mindspore.communication.management import get_group_size, init, get_rank
 
 from src.dataset import get_de_dataset
-from src.config import reid_1p_cfg, reid_8p_cfg
 from src.lr_generator import step_lr
 from src.log import get_logger, AverageMeter
-from src.reid import SphereNet, CombineMarginFCFp16, BuildTrainNetworkWithHead
+from src.reid import SphereNet, CombineMarginFCFp16, BuildTrainNetworkWithHead, CombineMarginFC
 from src.loss import CrossEntropy
 
+from model_utils.config import config
+from model_utils.moxing_adapter import moxing_wrapper
+from model_utils.device_adapter import get_device_id, get_device_num
+
 warnings.filterwarnings('ignore')
-devid = int(os.getenv('DEVICE_ID'))
-context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", save_graphs=True, device_id=devid)
 random.seed(1)
 np.random.seed(1)
 
+def init_argument():
+    """init config argument."""
+    graph_path = os.path.join('./graphs_graphmode', datetime.datetime.now().strftime('%Y-%m-%d_time_%H_%M_%S'))
+    context.set_context(mode=context.GRAPH_MODE, device_target=config.device_target, save_graphs=True,
+                        save_graphs_path=graph_path)
 
-def main():
-    parser = argparse.ArgumentParser(description='Cifar10 classification')
-    parser.add_argument('--is_distributed', type=int, default=0, help='if multi device')
-    parser.add_argument('--data_dir', type=str, default='', help='image label list file, e.g. /home/label.txt')
-    parser.add_argument('--pretrained', type=str, default='', help='pretrained model to load')
-
-    args = parser.parse_args()
-
-    if args.is_distributed == 0:
-        cfg = reid_1p_cfg
-    else:
-        cfg = reid_8p_cfg
-    cfg.pretrained = args.pretrained
-    cfg.data_dir = args.data_dir
+    if config.device_target == 'Ascend':
+        devid = int(os.getenv('DEVICE_ID'))
+        context.set_context(device_id=devid)
 
     # Init distributed
-    if args.is_distributed:
+    if config.is_distributed:
         init()
-        cfg.local_rank = get_rank()
-        cfg.world_size = get_group_size()
+        config.local_rank = get_rank()
+        config.world_size = get_group_size()
         parallel_mode = ParallelMode.DATA_PARALLEL
     else:
         parallel_mode = ParallelMode.STAND_ALONE
 
     # parallel_mode 'STAND_ALONE' do not support parameter_broadcast and mirror_mean
-    context.set_auto_parallel_context(parallel_mode=parallel_mode, device_num=cfg.world_size, 
+    context.set_auto_parallel_context(parallel_mode=parallel_mode, device_num=config.world_size,
                                       gradients_mean=True)
+
+    if config.device_target == 'Ascend' and config.is_distributed:
+        context.set_auto_parallel_context(all_reduce_fusion_config=[1, 10])
 
     mindspore.common.set_seed(1)
 
     # logger
-    cfg.outputs_dir = os.path.join(cfg.ckpt_path, datetime.datetime.now().strftime('%Y-%m-%d_time_%H_%M_%S'))
-    cfg.logger = get_logger(cfg.outputs_dir, cfg.local_rank)
+    config.outputs_dir = os.path.join(config.ckpt_path, datetime.datetime.now().strftime('%Y-%m-%d_time_%H_%M_%S'))
+    config.logger = get_logger(config.outputs_dir, config.local_rank)
+
+    # Show config
+    config.logger.save_args(config)
+    return config
+
+def modelarts_pre_process():
+    '''modelarts pre process function.'''
+    def unzip(zip_file, save_dir):
+        import zipfile
+        s_time = time.time()
+        if not os.path.exists(os.path.join(save_dir, config.modelarts_dataset_unzip_name)):
+            zip_isexist = zipfile.is_zipfile(zip_file)
+            if zip_isexist:
+                fz = zipfile.ZipFile(zip_file, 'r')
+                data_num = len(fz.namelist())
+                print("Extract Start...")
+                print("unzip file num: {}".format(data_num))
+                data_print = int(data_num / 100) if data_num > 100 else 1
+                i = 0
+                for file in fz.namelist():
+                    if i % data_print == 0:
+                        print("unzip percent: {}%".format(int(i * 100 / data_num)), flush=True)
+                    i += 1
+                    fz.extract(file, save_dir)
+                print("cost time: {}min:{}s.".format(int((time.time() - s_time) / 60),
+                                                     int(int(time.time() - s_time) % 60)))
+                print("Extract Done.")
+            else:
+                print("This is not zip.")
+        else:
+            print("Zip has been extracted.")
+
+    if config.need_modelarts_dataset_unzip:
+        zip_file_1 = os.path.join(config.data_path, config.modelarts_dataset_unzip_name + ".zip")
+        save_dir_1 = os.path.join(config.data_path)
+
+        sync_lock = "/tmp/unzip_sync.lock"
+
+        # Each server contains 8 devices as most.
+        if get_device_id() % min(get_device_num(), 8) == 0 and not os.path.exists(sync_lock):
+            print("Zip file path: ", zip_file_1)
+            print("Unzip file save dir: ", save_dir_1)
+            unzip(zip_file_1, save_dir_1)
+            print("===Finish extract data synchronization===")
+            try:
+                os.mknod(sync_lock)
+            except IOError:
+                pass
+
+        while True:
+            if os.path.exists(sync_lock):
+                break
+            time.sleep(1)
+
+        print("Device: {}, Finish sync unzip data from {} to {}.".format(get_device_id(), zip_file_1, save_dir_1))
+
+    config.ckpt_path = os.path.join(config.output_path, config.ckpt_path)
+
+
+@moxing_wrapper(pre_process=modelarts_pre_process)
+def run_train():
+    '''run train'''
+    cfg = init_argument()
     loss_meter = AverageMeter('loss')
-
-    # Show cfg
-    cfg.logger.save_args(cfg)
-
     # dataloader
     cfg.logger.info('start create dataloader')
     de_dataset, steps_per_epoch, class_num = get_de_dataset(cfg)
     cfg.steps_per_epoch = steps_per_epoch
-    cfg.logger.info('step per epoch: ' + str(cfg.steps_per_epoch))
-    de_dataloader = de_dataset.create_tuple_iterator()
+    cfg.logger.info('step per epoch: %s', cfg.steps_per_epoch)
 
-    cfg.logger.info('class num original: ' + str(class_num))
+    # increase training speed for Ascend and distribute mode
+    if config.device_target == 'Ascend' and config.is_distributed:
+        de_dataloader = de_dataset.create_tuple_iterator(do_copy=False)
+    else:
+        de_dataloader = de_dataset.create_tuple_iterator()
+
+    cfg.logger.info('class num original: %s', class_num)
     if class_num % 16 != 0:
         class_num = (class_num // 16 + 1) * 16
     cfg.class_num = class_num
-    cfg.logger.info('change the class num to :' + str(cfg.class_num))
+    cfg.logger.info('change the class num to: %s', cfg.class_num)
     cfg.logger.info('end create dataloader')
 
     # backbone and loss
@@ -102,7 +162,10 @@ def main():
     create_network_start = time.time()
 
     network = SphereNet(num_layers=cfg.net_depth, feature_dim=cfg.embedding_size, shape=cfg.input_size)
-    head = CombineMarginFCFp16(embbeding_size=cfg.embedding_size, classnum=cfg.class_num)
+    if cfg.device_target == 'CPU':
+        head = CombineMarginFC(embbeding_size=cfg.embedding_size, classnum=cfg.class_num)
+    else:
+        head = CombineMarginFCFp16(embbeding_size=cfg.embedding_size, classnum=cfg.class_num)
     criterion = CrossEntropy()
 
     # load the pretrained model
@@ -117,11 +180,15 @@ def main():
             else:
                 param_dict_new[key] = values
         load_param_into_net(network, param_dict_new)
-        cfg.logger.info('load model {} success'.format(cfg.pretrained))
+        cfg.logger.info('load model %s success', cfg.pretrained)
 
     # mixed precision training
-    network.add_flags_recursive(fp16=True)
-    head.add_flags_recursive(fp16=True)
+    if cfg.device_target == 'CPU':
+        network.add_flags_recursive(fp32=True)
+        head.add_flags_recursive(fp32=True)
+    else:
+        network.add_flags_recursive(fp16=True)
+        head.add_flags_recursive(fp16=True)
     criterion.add_flags_recursive(fp32=True)
 
     train_net = BuildTrainNetworkWithHead(network, head, criterion)
@@ -133,7 +200,7 @@ def main():
               weight_decay=cfg.weight_decay, loss_scale=cfg.loss_scale)
 
     # package training process, adjust lr + forward + backward + optimizer
-    train_net = TrainOneStepCell(train_net, opt, sens=cfg.loss_scale, )
+    train_net = TrainOneStepCell(train_net, opt, sens=cfg.loss_scale)
 
     # checkpoint save
     if cfg.local_rank == 0:
@@ -155,8 +222,6 @@ def main():
     cfg.logger.important_info('====start train====')
     for i, total_data in enumerate(de_dataloader):
         data, gt = total_data
-        data = Tensor(data)
-        gt = Tensor(gt)
 
         loss = train_net(data, gt)
         loss_meter.update(loss.asnumpy())
@@ -194,4 +259,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_train()

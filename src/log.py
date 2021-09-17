@@ -15,24 +15,26 @@
 """Custom logger."""
 import logging
 import os
-import numpy as np
 import sys
 from datetime import datetime
 
-logger_name = 'REID'
+
+logger_name_1 = 'REID'
 
 
 class LOGGER(logging.Logger):
+    '''LOGGER'''
     def __init__(self, logger_name):
         super(LOGGER, self).__init__(logger_name)
         console = logging.StreamHandler(sys.stdout)
         console.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(message)s')
         console.setFormatter(formatter)
-        self.addHandler(console )
+        self.addHandler(console)
         self.local_rank = 0
 
     def setup_logging_file(self, log_dir, local_rank=0):
+        '''Setup logging file.'''
         self.local_rank = local_rank
         if self.local_rank == 0:
             if not os.path.exists(log_dir):
@@ -53,7 +55,7 @@ class LOGGER(logging.Logger):
         self.info('Args:')
         args_dict = vars(args)
         for key in args_dict.keys():
-            self.info('--> {}: {}'.format(key, args_dict[key]))
+            self.info('--> %s: %s', key, args_dict[key])
         self.info('')
 
     def important_info(self, msg, *args, **kwargs):
@@ -69,27 +71,27 @@ class LOGGER(logging.Logger):
 
 
 def get_logger(path, rank):
-    logger = LOGGER(logger_name)
+    logger = LOGGER(logger_name_1)
     logger.setup_logging_file(path, rank)
     return logger
 
 
-class AverageMeter(object):
+class AverageMeter():
     """Computes and stores the average and current value"""
- 
+
     def __init__(self, name, fmt=':f', tb_writer=None):
         self.name = name
         self.fmt = fmt
         self.reset()
         self.tb_writer = tb_writer
         self.cur_step = 1
- 
+
     def reset(self):
         self.val = 0
         self.avg = 0
         self.sum = 0
         self.count = 0
- 
+
     def update(self, val, n=1):
         self.val = val
         self.sum += val * n
@@ -98,7 +100,7 @@ class AverageMeter(object):
         if self.tb_writer is not None:
             self.tb_writer.add_scalar(self.name, self.val, self.cur_step)
         self.cur_step += 1
- 
+
     def __str__(self):
         fmtstr = '{name}:{avg' + self.fmt + '}'
         return fmtstr.format(**self.__dict__)

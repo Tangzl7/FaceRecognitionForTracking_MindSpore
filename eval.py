@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,35 +15,37 @@
 """Face Recognition eval."""
 import os
 import re
+import warnings
+import time
 import numpy as np
 from PIL import Image
-import argparse
-import torch
-import torchvision.transforms as trans
 from tqdm import tqdm
-import warnings
 
-from mindspore import context
-from mindspore import Tensor
+import mindspore.dataset.vision.py_transforms as V
+import mindspore.dataset.transforms.py_transforms as T
+from mindspore import context, Tensor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 
 from src.reid import SphereNet
 
+from model_utils.config import config
+from model_utils.moxing_adapter import moxing_wrapper
+from model_utils.device_adapter import get_device_id, get_device_num
+
 warnings.filterwarnings('ignore')
-devid = int(os.getenv('DEVICE_ID'))
-context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", save_graphs=True, device_id=devid)
 
 
-def inclass_likehood(ims_info, type='cos'):
+def inclass_likehood(ims_info, types='cos'):
+    '''Inclass likehood.'''
     obj_feas = {}
     likehoods = []
     for name, _, fea in ims_info:
-        if re.split('_\d\d\d\d', name)[0] not in obj_feas:
-            obj_feas[re.split('_\d\d\d\d', name)[0]] = []
-        obj_feas[re.split('_\d\d\d\d', name)[0]].append(fea)
+        if re.split('_\\d\\d\\d\\d', name)[0] not in obj_feas:
+            obj_feas[re.split('_\\d\\d\\d\\d', name)[0]] = []
+        obj_feas[re.split('_\\d\\d\\d\\d', name)[0]].append(fea) # pylint: "_\d\d\d\d" -> "_\\d\\d\\d\\d"
     for _, feas in tqdm(obj_feas.items()):
         feas = np.array(feas)
-        if type == 'cos':
+        if types == 'cos':
             likehood_mat = np.dot(feas, np.transpose(feas)).tolist()
             for row in likehood_mat:
                 likehoods += row
@@ -55,19 +57,22 @@ def inclass_likehood(ims_info, type='cos'):
     return likehoods
 
 
-def btclass_likehood(ims_info, fm_range=1000, type='cos'):
+def btclass_likehood(ims_info, types='cos'):
+    '''Btclass likehood.'''
     likehoods = []
     count = 0
     for name1, _, fea1 in tqdm(ims_info):
         count += 1
-        frame_id1, obj_id1 = re.split('_\d\d\d\d', name1)[0], name1.split('_')[-1]
+        # pylint: "_\d\d\d\d" -> "_\\d\\d\\d\\d"
+        frame_id1, _ = re.split('_\\d\\d\\d\\d', name1)[0], name1.split('_')[-1]
         fea1 = np.array(fea1)
         for name2, _, fea2 in ims_info:
-            frame_id2, obj_id2 = re.split('_\d\d\d\d', name2)[0], name2.split('_')[-1]
+            # pylint: "_\d\d\d\d" -> "_\\d\\d\\d\\d"
+            frame_id2, _ = re.split('_\\d\\d\\d\\d', name2)[0], name2.split('_')[-1]
             if frame_id1 == frame_id2:
                 continue
             fea2 = np.array(fea2)
-            if type == 'cos':
+            if types == 'cos':
                 likehoods.append(np.sum(fea1 * fea2))
             else:
                 likehoods.append(np.sum(-(fea1 - fea2) ** 2))
@@ -88,24 +93,88 @@ def tar_at_far(inlikehoods, btlikehoods):
 
 
 def load_images(paths, batch_size=128):
+    '''Load images.'''
     ll = []
-    transform = trans.Compose([
-        trans.Resize((96, 64)),
-        trans.ToTensor(),
-        trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-    for i in range(len(paths)):
+    resize = V.Resize((96, 64))
+    transform = T.Compose([
+        V.ToTensor(),
+        V.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
+    for i, _ in enumerate(paths):
         im = Image.open(paths[i])
-        ts = transform(im)
-        ll.append(ts)
+        im = resize(im)
+        img = np.array(im)
+        ts = transform(img)
+        ll.append(ts[0])
         if len(ll) == batch_size:
-            yield torch.stack(ll, dim=0)
+            yield np.stack(ll, axis=0)
             ll.clear()
-    if len(ll) > 0:
-        yield torch.stack(ll, dim=0)
+    if ll:
+        yield np.stack(ll, axis=0)
 
 
-def main(args):
-    model_path = args.pretrained
+def modelarts_pre_process():
+    '''modelarts pre process function.'''
+    def unzip(zip_file, save_dir):
+        import zipfile
+        s_time = time.time()
+        if not os.path.exists(os.path.join(save_dir, config.modelarts_dataset_unzip_name)):
+            zip_isexist = zipfile.is_zipfile(zip_file)
+            if zip_isexist:
+                fz = zipfile.ZipFile(zip_file, 'r')
+                data_num = len(fz.namelist())
+                print("Extract Start...")
+                print("unzip file num: {}".format(data_num))
+                data_print = int(data_num / 100) if data_num > 100 else 1
+                i = 0
+                for file in fz.namelist():
+                    if i % data_print == 0:
+                        print("unzip percent: {}%".format(int(i * 100 / data_num)), flush=True)
+                    i += 1
+                    fz.extract(file, save_dir)
+                print("cost time: {}min:{}s.".format(int((time.time() - s_time) / 60),
+                                                     int(int(time.time() - s_time) % 60)))
+                print("Extract Done.")
+            else:
+                print("This is not zip.")
+        else:
+            print("Zip has been extracted.")
+
+    if config.need_modelarts_dataset_unzip:
+        zip_file_1 = os.path.join(config.data_path, config.modelarts_dataset_unzip_name + ".zip")
+        save_dir_1 = os.path.join(config.data_path)
+
+        sync_lock = "/tmp/unzip_sync.lock"
+
+        # Each server contains 8 devices as most.
+        if get_device_id() % min(get_device_num(), 8) == 0 and not os.path.exists(sync_lock):
+            print("Zip file path: ", zip_file_1)
+            print("Unzip file save dir: ", save_dir_1)
+            unzip(zip_file_1, save_dir_1)
+            print("===Finish extract data synchronization===")
+            try:
+                os.mknod(sync_lock)
+            except IOError:
+                pass
+
+        while True:
+            if os.path.exists(sync_lock):
+                break
+            time.sleep(1)
+
+        print("Device: {}, Finish sync unzip data from {} to {}.".format(get_device_id(), zip_file_1, save_dir_1))
+
+
+@moxing_wrapper(pre_process=modelarts_pre_process)
+def run_eval():
+    '''run eval.'''
+    context.set_context(mode=context.GRAPH_MODE, device_target=config.device_target, save_graphs=False)
+
+    if config.device_target == 'Ascend':
+        devid = int(os.getenv('DEVICE_ID'))
+        context.set_context(device_id=devid)
+    print(config)
+
+    model_path = config.pretrained
     result_file = model_path.replace('.ckpt', '.txt')
     if os.path.exists(result_file):
         os.remove(result_file)
@@ -129,10 +198,13 @@ def main(args):
         else:
             print('-----------------------load model failed -----------------------')
 
-        network.add_flags_recursive(fp16=True)
+        if config.device_target == 'CPU':
+            network.add_flags_recursive(fp32=True)
+        else:
+            network.add_flags_recursive(fp16=True)
         network.set_train(False)
 
-        root_path = args.eval_dir
+        root_path = config.eval_dir
         root_file_list = os.listdir(root_path)
         ims_info = []
         for sub_path in root_file_list:
@@ -145,7 +217,7 @@ def main(args):
 
         l_t = []
         for batch in load_images(paths):
-            batch = batch.numpy().astype(np.float32)
+            batch = batch.astype(np.float32)
             batch = Tensor(batch)
             fea = network(batch)
             l_t.append(fea.asnumpy().astype(np.float16))
@@ -169,11 +241,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='reid test')
-    parser.add_argument('--pretrained', type=str, default='', help='pretrained model to load')
-    parser.add_argument('--eval_dir', type=str, default='', help='eval image dir, e.g. /home/test')
-
-    args = parser.parse_args()
-    print(args)
-
-    main(args)
+    run_eval()

@@ -16,6 +16,7 @@
 import math
 import numpy as np
 from mindspore.common import initializer as init
+from mindspore.common.initializer import _assignment as assignment
 
 
 def calculate_gain(nonlinearity, param=None):
@@ -42,11 +43,11 @@ def calculate_gain(nonlinearity, param=None):
     """
     linear_fns = ['linear', 'conv1d', 'conv2d', 'conv3d', 'conv_transpose1d', 'conv_transpose2d', 'conv_transpose3d']
     if nonlinearity in linear_fns or nonlinearity == 'sigmoid':
-        return 1
+        a = 1
     elif nonlinearity == 'tanh':
-        return 5.0 / 3
+        a = 5.0 / 3
     elif nonlinearity == 'relu':
-        return math.sqrt(2.0)
+        a = math.sqrt(2.0)
     elif nonlinearity == 'leaky_relu':
         if param is None:
             negative_slope = 0.01
@@ -55,10 +56,10 @@ def calculate_gain(nonlinearity, param=None):
             negative_slope = param
         else:
             raise ValueError("negative_slope {} not a valid number".format(param))
-        return math.sqrt(2.0 / (1 + negative_slope ** 2))
+        a = math.sqrt(2.0 / (1 + negative_slope ** 2))
     else:
         raise ValueError("Unsupported nonlinearity {}".format(nonlinearity))
-
+    return a
 
 def _calculate_correct_fan(array, mode):
     mode = mode.lower()
@@ -138,6 +139,7 @@ def kaiming_normal_(arr, a=0, mode='fan_in', nonlinearity='leaky_relu'):
 
 
 def _calculate_fan_in_and_fan_out(arr):
+    '''Calculate fan_in and fan_out.'''
     dimensions = len(arr.shape)
     if dimensions < 2:
         raise ValueError("Fan in and fan out can not be computed for array with fewer than 2 dimensions")
@@ -188,7 +190,7 @@ class ReidXavierUniform(init.Initializer):
 
     def _initialize(self, arr):
         tmp = xavier_uniform_(arr, self.gain)
-        init._assignment(arr, tmp)
+        assignment(arr, tmp)
 
 
 class ReidKaimingUniform(init.Initializer):
@@ -200,7 +202,7 @@ class ReidKaimingUniform(init.Initializer):
 
     def _initialize(self, arr):
         tmp = kaiming_uniform_(arr, self.a, self.mode, self.nonlinearity)
-        init._assignment(arr, tmp)
+        assignment(arr, tmp)
 
 
 class ReidKaimingNormal(init.Initializer):
@@ -212,4 +214,4 @@ class ReidKaimingNormal(init.Initializer):
 
     def _initialize(self, arr):
         tmp = kaiming_normal_(arr, self.a, self.mode, self.nonlinearity)
-        init._assignment(arr, tmp)
+        assignment(arr, tmp)

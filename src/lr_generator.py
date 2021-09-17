@@ -13,8 +13,8 @@
 # limitations under the License.
 # ============================================================================
 """Face Recognition learning rate scheduler."""
-import numpy as np
 from collections import Counter
+import numpy as np
 
 
 def linear_warmup_learning_rate(current_step, warmup_steps, base_lr, init_lr):
@@ -24,6 +24,7 @@ def linear_warmup_learning_rate(current_step, warmup_steps, base_lr, init_lr):
 
 
 def warmup_step(args, gamma=0.1):
+    '''Warmup step.'''
     base_lr = args.lr
     warmup_init_lr = 0
     total_steps = int(args.max_epoch * args.steps_per_epoch)
@@ -51,6 +52,7 @@ def linear_warmup_lr(current_step, warmup_steps, base_lr, init_lr):
 
 
 def warmup_step_lr(lr, lr_epochs, steps_per_epoch, warmup_epochs, max_epoch, gamma=0.1):
+    '''Warmup step lr.'''
     base_lr = lr
     warmup_init_lr = 0
     total_steps = int(max_epoch * steps_per_epoch)

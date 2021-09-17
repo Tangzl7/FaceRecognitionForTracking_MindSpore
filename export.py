@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,24 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Convert ckpt to air."""
+"""Convert ckpt to air/mindir."""
 import os
 import numpy as np
-import argparse
 
 from mindspore import context
 from mindspore import Tensor
 from mindspore.train.serialization import export, load_checkpoint, load_param_into_net
 
-from src.reid_for_export import SphereNet
+from src.reid import SphereNet_float32
 
-devid = int(os.getenv('DEVICE_ID'))
-context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", save_graphs=True, device_id=devid)
+from model_utils.config import config
+from model_utils.moxing_adapter import moxing_wrapper
 
 
-def main(args):
-    network = SphereNet(num_layers=12, feature_dim=128, shape=(96, 64))
-    ckpt_path = args.pretrained
+def modelarts_pre_process():
+    '''modelarts pre process function.'''
+    config.file_name = os.path.join(config.output_path, config.file_name)
+
+
+@moxing_wrapper(pre_process=modelarts_pre_process)
+def run_export():
+    '''run export.'''
+    if config.device_target == 'Ascend':
+        devid = int(os.getenv('DEVICE_ID', '0'))
+        context.set_context(device_id=devid)
+
+    context.set_context(mode=context.GRAPH_MODE, device_target=config.device_target)
+
+    network = SphereNet_float32(num_layers=12, feature_dim=128, shape=(96, 64))
+    ckpt_path = config.pretrained
     if os.path.isfile(ckpt_path):
         param_dict = load_checkpoint(ckpt_path)
         param_dict_new = {}
@@ -45,23 +57,18 @@ def main(args):
     else:
         print('-----------------------load model failed -----------------------')
 
-    network.add_flags_recursive(fp16=True)
+    if config.device_target == 'CPU':
+        network.add_flags_recursive(fp32=True)
+    else:
+        network.add_flags_recursive(fp16=True)
     network.set_train(False)
 
-    input_data = np.random.uniform(low=0, high=1.0, size=(args.batch_size, 3, 96, 64)).astype(np.float32)
+    input_data = np.random.uniform(low=0, high=1.0, size=(config.batch_size, 3, 96, 64)).astype(np.float32)
     tensor_input_data = Tensor(input_data)
 
-    export(network, tensor_input_data, file_name=ckpt_path.replace('.ckpt', '_' + str(args.batch_size) + 'b.air'),
-           file_format='AIR')
+    export(network, tensor_input_data, file_name=config.file_name, file_format=config.file_format)
     print('-----------------------export model success-----------------------')
 
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description='Convert ckpt to air')
-    parser.add_argument('--pretrained', type=str, default='', help='pretrained model to load')
-    parser.add_argument('--batch_size', type=int, default=8, help='batch size')
-
-    args = parser.parse_args()
-
-    main(args)
+    run_export()

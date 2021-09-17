@@ -1,0 +1,38 @@
+algorithm:
+  # 算法名称
+  name: "FaceRecognitionForTracking"
+  # 框架名称
+  framework: "mindspore"
+  # 模型简要描述，可选
+  description: 
+    zh: "基于ResNet的人脸识别网络"
+    en: "Face Recognition NetWork based on ResNet"
+  on_modelarts:
+    # 训练入口脚本, 仅支持py脚本
+    entry: "./start.py"
+    # 每个模型都必须支持的参数
+    comm_para:
+      input_path:
+        # modelarts中的数据集路径name
+        - name: "data_url"
+          type: "string"
+          desc: 
+            zh: "数据集路径"
+            en: ""
+      output_path:
+        # 模型输出路径
+        - name: "model_path"
+          desc: 
+            zh: "模型输出路径"
+            en: ""
+    custom_para:
+      - name: "max_train_steps"
+        type: int
+        required: true
+        default: 1000
+        desc: 
+          zh: "最大训练步数"
+          en: ""
+        # 非必填，默认为True
+        # False表示在ModelArts创建训练任务时可见参数，但不支持修改
+        editable: true

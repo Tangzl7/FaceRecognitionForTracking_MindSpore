@@ -13,17 +13,18 @@
 # limitations under the License.
 # ============================================================================
 """Face Recognition loss."""
-from mindspore.nn.loss.loss import _Loss
+from mindspore.nn.loss.loss import LossBase
 from mindspore.ops import operations as P
 from mindspore.ops import functional as F
-from mindspore import Tensor, Parameter
+from mindspore import Tensor
 from mindspore.common import dtype as mstype
 import mindspore.nn as nn
 
 eps = 1e-24
 
 
-class CrossEntropyNew(_Loss):
+class CrossEntropyNew(LossBase):
+    '''CrossEntropyNew'''
     def __init__(self, smooth_factor=0., num_classes=1000):
         super(CrossEntropyNew, self).__init__()
         self.onehot = P.OneHot()
@@ -41,7 +42,8 @@ class CrossEntropyNew(_Loss):
         return loss
 
 
-class CrossEntropy(_Loss):
+class CrossEntropy(LossBase):
+    '''CrossEntropy'''
     def __init__(self):
         super(CrossEntropy, self).__init__()
 
@@ -56,6 +58,7 @@ class CrossEntropy(_Loss):
         self.off_value = Tensor(0.0, mstype.float32)
 
     def construct(self, logit, label):
+        '''Construct function.'''
         exp = self.exp(logit)
         exp_sum = self.sum(exp, -1)
         exp_sum = self.reshape(exp_sum, (F.shape(exp_sum)[0], 1))
@@ -72,6 +75,7 @@ class CrossEntropy(_Loss):
 
 
 class CrossEntropyWithIgnoreIndex(nn.Cell):
+    '''CrossEntropyWithIgnoreIndex'''
     def __init__(self):
         super(CrossEntropyWithIgnoreIndex, self).__init__()
         self.onehot = P.OneHot()
@@ -102,7 +106,8 @@ class CrossEntropyWithIgnoreIndex(nn.Cell):
 eps = 1e-24
 
 
-class CEWithIgnoreIndex3D(_Loss):
+class CEWithIgnoreIndex3D(LossBase):
+    '''CEWithIgnoreIndex3D'''
     def __init__(self):
         super(CEWithIgnoreIndex3D, self).__init__()
 
@@ -120,6 +125,7 @@ class CEWithIgnoreIndex3D(_Loss):
         self.resum = P.ReduceSum(keep_dims=False)
 
     def construct(self, logit, label):
+        '''Construct function.'''
         mask = self.reshape(label, (F.shape(label)[0], F.shape(label)[1], 1))
         mask = self.cast(mask, mstype.float32)
         mask = mask + F.scalar_to_array(0.00001)
