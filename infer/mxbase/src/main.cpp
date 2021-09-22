@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
     std::string imgPath = argv[1];
     InitParam initParam;
     initParam.deviceId = 0;
-    initParam.modelPath = "../../data/face_recognition_for_tracking.om";
+    initParam.modelPath = "../../../model/face_recognition_for_tracking.om";
     auto face_recognition_for_tracking = std::make_shared<FaceRecognitionForTracking>();
     APP_ERROR ret = face_recognition_for_tracking->Init(initParam);
     if (ret != APP_ERR_OK) {

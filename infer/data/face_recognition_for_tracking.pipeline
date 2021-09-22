@@ -5,7 +5,7 @@
         },
         "appsrc0": {
             "props": {
-                "blocksize": "40960"
+                "blocksize": "4096000"
             },
             "factory": "appsrc",
             "next": "mxpi_imagedecoder0"
@@ -13,7 +13,8 @@
         "mxpi_imagedecoder0": {
             "props": {
                 "handleMethod": "opencv",
-                "outputDataFormat": "RGB"
+                "outputDataFormat": "RGB",
+                "dataType": "float32"
             },
             "factory": "mxpi_imagedecoder",
             "next": "mxpi_imageresize0"
@@ -27,12 +28,29 @@
                 "resizeType": "Resizer_Stretch"
             },
             "factory": "mxpi_imageresize",
-            "next": "mxpi_tensorinfer0" 
+            "next": "mxpi_transposeplugin0"
+        },
+        "mxpi_transposeplugin0": {
+            "props": {
+                "dataSource": "mxpi_imageresize0"
+            },
+            "factory": "mxpi_transposeplugin_2",
+            "next": "mxpi_imagenormalize0"
+        },
+        "mxpi_imagenormalize0": {
+            "props": {
+                "dataSource": "mxpi_transposeplugin0",
+                "alpha": "127.5, 127.5, 127.5",
+                "beta": "127.5, 127.5, 127.5",
+                "dataType": "FLOAT32"
+            },
+            "factory": "mxpi_imagenormalize",
+            "next": "mxpi_tensorinfer0"
         },
         "mxpi_tensorinfer0": {
             "props": {
-                "dataSource": "mxpi_imageresize0",
-                "modelPath": "../data/face_recognition_for_tracking.om"
+                "dataSource": "mxpi_imagenormalize0",
+                "modelPath": "../../model/face_recognition_for_tracking.om"
             },
             "factory": "mxpi_tensorinfer",
             "next": "mxpi_dumpdata0"
@@ -46,7 +64,7 @@
         },
         "appsink0": {
             "props": {
-                "blocksize": "40960"
+                "blocksize": "4096000"
             },
             "factory": "appsink"
         }

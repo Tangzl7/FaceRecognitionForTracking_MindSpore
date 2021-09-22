@@ -18,6 +18,7 @@ import re
 import warnings
 import time
 import numpy as np
+import cv2
 from PIL import Image
 from tqdm import tqdm
 
@@ -92,7 +93,7 @@ def tar_at_far(inlikehoods, btlikehoods):
     return tar_far
 
 
-def load_images(paths, batch_size=128):
+def load_images(paths, batch_size=1):
     '''Load images.'''
     ll = []
     resize = V.Resize((96, 64))
@@ -100,8 +101,12 @@ def load_images(paths, batch_size=128):
         V.ToTensor(),
         V.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
     for i, _ in enumerate(paths):
+        # if paths[i].find('Aaron_Tippin_0001') == -1:
+        #     continue
         im = Image.open(paths[i])
-        im = resize(im)
+        imgg = np.array(im)
+        # im = resize(im)
+        im = cv2.resize(imgg, (64, 96), interpolation=cv2.INTER_LINEAR)
         img = np.array(im)
         ts = transform(img)
         ll.append(ts[0])
@@ -191,15 +196,17 @@ def run_eval():
                     continue
                 elif key.startswith('model.'):
                     param_dict_new[key[6:]] = values
+                    print(key[6:], values)
                 else:
                     param_dict_new[key] = values
+                    print(key, values)
             load_param_into_net(network, param_dict_new)
             print('-----------------------load model success-----------------------')
         else:
             print('-----------------------load model failed -----------------------')
 
         if config.device_target == 'CPU':
-            network.add_flags_recursive(fp32=True)
+            network.add_flags_recursive(fp16=True)
         else:
             network.add_flags_recursive(fp16=True)
         network.set_train(False)
@@ -219,10 +226,15 @@ def run_eval():
         for batch in load_images(paths):
             batch = batch.astype(np.float32)
             batch = Tensor(batch)
+            # print(batch.shape)
+            # print(batch[0][0][0])
+            # print(batch[0][0][1])
             fea = network(batch)
+            # print(fea)
             l_t.append(fea.asnumpy().astype(np.float16))
         feas = np.concatenate(l_t, axis=0)
         ims_info = list(zip(names, paths, feas.tolist()))
+        print(len(ims_info))
 
         print("exact inclass likehood...")
         inlikehoods = inclass_likehood(ims_info)

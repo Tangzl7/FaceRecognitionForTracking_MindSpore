@@ -8,7 +8,7 @@ checkpoint_url: ""
 data_path: "/cache/data"
 output_path: "/cache/train"
 load_path: "/cache/checkpoint_path"
-device_target: "Ascend"
+device_target: "CPU"
 need_modelarts_dataset_unzip: True
 modelarts_dataset_unzip_name: "face_recognitionTrack_dataset"
 
@@ -17,7 +17,7 @@ modelarts_dataset_unzip_name: "face_recognitionTrack_dataset"
 task: 'REID_1p'
 
 # dataset related
-per_batch_size: 128
+per_batch_size: 1
 
 # network structure related
 fp16: 1
@@ -50,8 +50,8 @@ ckpt_interval: 200
 
 # train/eval option
 data_dir: ''
-pretrained: ''
-eval_dir: ''
+pretrained: './model/facerecognitiontrack.ckpt'
+eval_dir: './infer/data/input/valid_data'
 
 # export option
 batch_size: 8

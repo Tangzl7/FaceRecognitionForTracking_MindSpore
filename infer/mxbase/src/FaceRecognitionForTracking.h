@@ -31,8 +31,8 @@ public:
     APP_ERROR Init(const InitParam &initParam);
     APP_ERROR DeInit();
     APP_ERROR ReadImage(const std::string &imgPath, cv::Mat &imgMat);
-    APP_ERROR Resize(const cv::Mat &srcMat, cv::Mat &dstMat);
-    APP_ERROR CvMatToTensorBase(const cv::Mat &imgMat, MxBase::TensorBase &tensorBase);
+    APP_ERROR Resize(const cv::Mat &srcMat, float *dstMat);
+    APP_ERROR CvMatToTensorBase(float* imgMat, MxBase::TensorBase &tensorBase);
     APP_ERROR Inference(const std::vector<MxBase::TensorBase> &inputs, std::vector<MxBase::TensorBase> &outputs);
     APP_ERROR PostProcess(const std::vector<MxBase::TensorBase> &inputs, std::vector<std::string> &names, cv::Mat &output);
     APP_ERROR Process(const std::string &imgPath);

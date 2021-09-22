@@ -65,17 +65,27 @@ APP_ERROR FaceRecognitionForTracking::ReadImage(const std::string &imgPath, cv::
     return APP_ERR_OK;
 }
 
-APP_ERROR FaceRecognitionForTracking::Resize(const cv::Mat &srcMat, cv::Mat &dstMat) {
+APP_ERROR FaceRecognitionForTracking::Resize(const cv::Mat &srcMat, float *dstMat) {
     static constexpr uint32_t resizeWidth = 64;
     static constexpr uint32_t resizeHeight = 96;
-    cv::resize(srcMat, dstMat, cv::Size(resizeWidth, resizeHeight), 0, 0, cv::INTER_LINEAR);
+    cv::Mat resizeMat;
+    cv::resize(srcMat, resizeMat, cv::Size(resizeWidth, resizeHeight), 0, 0, cv::INTER_LINEAR);
+    for (auto i = 0; i < resizeMat.rows; i++) {
+        for (auto j = 0; j < resizeMat.cols; j++) {
+            dstMat[i*64+j] = ((float)resizeMat.at<cv::Vec3b>(i, j)[0] / 255 - 0.5) * 2;
+            dstMat[6144+i*64+j] = ((float)resizeMat.at<cv::Vec3b>(i, j)[1] / 255 - 0.5) * 2;
+            dstMat[12288+i*64+j] = ((float)resizeMat.at<cv::Vec3b>(i, j)[2] / 255 - 0.5) * 2;
+        }
+    }
+
     return APP_ERR_OK;
 }
 
-APP_ERROR FaceRecognitionForTracking::CvMatToTensorBase(const cv::Mat &imgMat, MxBase::TensorBase &tensorBase) {
-    const uint32_t dataSize = imgMat.cols * imgMat.rows * MxBase::YUV444_RGB_WIDTH_NU;
+APP_ERROR FaceRecognitionForTracking::CvMatToTensorBase(float* imgMat, MxBase::TensorBase &tensorBase) {
+    const uint32_t dataSize = 18432*sizeof(float);
+
     MemoryData memoryDataDst(dataSize, MemoryData::MEMORY_DEVICE, deviceId_);
-    MemoryData memoryDataSrc(imgMat.data, dataSize, MemoryData::MEMORY_HOST_MALLOC);
+    MemoryData memoryDataSrc(imgMat, dataSize, MemoryData::MEMORY_HOST_MALLOC);
 
     APP_ERROR ret = MemoryHelper::MxbsMallocAndCopy(memoryDataDst, memoryDataSrc);
     if (ret != APP_ERR_OK) {
@@ -83,8 +93,9 @@ APP_ERROR FaceRecognitionForTracking::CvMatToTensorBase(const cv::Mat &imgMat, M
         return ret;
     }
 
-    std::vector<uint32_t> shape = {imgMat.rows * YUV444_RGB_WIDTH_NU, static_cast<uint32_t>(imgMat.cols)};
-    tensorBase = TensorBase(memoryDataDst, false, shape, TENSOR_DTYPE_FLOAT16);
+    std::vector<uint32_t> shape = {3, static_cast<uint32_t>(96*64)};
+    tensorBase = TensorBase(memoryDataDst, false, shape, TENSOR_DTYPE_FLOAT32);
+
     return APP_ERR_OK;
 }
 
@@ -167,6 +178,7 @@ void FaceRecognitionForTracking::TarAtFar(std::vector<float> &inclassLikehood, s
 
 APP_ERROR FaceRecognitionForTracking::PostProcess(const std::vector<MxBase::TensorBase> &inputs, 
                                                 std::vector<std::string> &names, cv::Mat &output) {
+
     auto featureShape = inputs[0].GetShape();
     cv::Mat featureMat(inputs.size(), featureShape[1], CV_32FC1);
     for (uint32_t i=0; i<inputs.size(); i++) {
@@ -231,7 +243,7 @@ APP_ERROR FaceRecognitionForTracking::Process(const std::string &dirPath) {
             LogError << "ReadImage failed, ret=" << ret << ".";
             return ret;
         }
-        cv::Mat resizeImage;
+        float resizeImage[18432];
         ret = Resize(image, resizeImage);
         if (ret != APP_ERR_OK) {
             LogError << "Resize failed, ret=" << ret << ".";

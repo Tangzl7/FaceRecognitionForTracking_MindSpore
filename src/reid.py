@@ -175,10 +175,11 @@ class SphereNet(Cell):
         if self.device_target == 'Ascend':
             x = self.last_bn(x)
         else:
-            old_shape = x.shape
-            x = self.reshape(x, (old_shape[0], old_shape[1], 1, 1))
-            x = self.last_bn_sub(x)
-            x = self.reshape(x, old_shape)
+            # old_shape = x.shape
+            # x = self.reshape(x, (old_shape[0], old_shape[1], 1, 1))
+            # x = self.last_bn_sub(x)
+            # x = self.reshape(x, old_shape)
+            x = self.last_bn(x)
 
         if self.device_target != 'CPU':
             x = self.cast(x, mstype.float16)
